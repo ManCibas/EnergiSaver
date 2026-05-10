@@ -10,17 +10,18 @@ import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.*
-import okhttp3.*
-import org.json.JSONObject
-import java.io.IOException
 
 
 class DeviceDetailsFragment(private val device: Device) : BottomSheetDialogFragment() {
 
-    private val client = OkHttpClient()
     private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private var firebaseListener: ValueEventListener? = null
+
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.layout_device_details, container, false)
@@ -37,11 +38,16 @@ class DeviceDetailsFragment(private val device: Device) : BottomSheetDialogFragm
         val dbRef = FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
             .getReference("users").child(uid!!).child("energy_data").child("devices").child(device.id)
 
-        if (device.ipAddress.isNotEmpty()) {
-            fetchShellyData(device.ipAddress, tvCons, dbRef)
-        } else {
-            tvCons.text = "IP não configurado. Consumo: ${device.consumption} kWh"
-        }
+        firebaseListener = dbRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    val watts = snapshot.child("consumption").value?.toString() ?: "0"
+                    tvCons.text = "Consumo: $watts W"
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        })
+
 
         btnUpdate.setOnClickListener {
             val newName = etName.text.toString()
@@ -60,39 +66,25 @@ class DeviceDetailsFragment(private val device: Device) : BottomSheetDialogFragm
 
         return view
     }
-    private fun fetchShellyData(ip: String, textView: TextView, dbRef: com.google.firebase.database.DatabaseReference) {
-        val request = Request.Builder()
-            .url("http://$ip/status") //Shelly uses HTTP
-            .build()
 
-        scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                try {
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) throw IOException("Erro: $response")
-
-                        val jsonData = JSONObject(response.body!!.string())
-                        val meters = jsonData.getJSONArray("meters")
-                        val powerWatts = meters.getJSONObject(0).getDouble("power").toFloat()
-
-                        withContext(Dispatchers.Main) {
-                            textView.text = "Consumo Real: $powerWatts W"
-                            // Update Firebase with the read values from the plug
-                            dbRef.child("consumption").setValue(powerWatts)
-                        }
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        textView.text = "Erro ao ligar à Shelly: ${e.message}"
-                    }
-                }
-                delay(5000) // Wait for 5 seconds before fetching data again
-            }
-        }
-    }
 
     override fun onDestroy() {
         super.onDestroy()
-        scope.cancel() // Limpa os processos de rede ao fechar a janela
+        //Cancels any pending coroutines
+        scope.cancel()
+
+        // 2. Remove o listener do Firebase para evitar que a App
+        // continue a gastar dados com a janela fechada
+        firebaseListener?.let { listener ->
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid != null) {
+                FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+                    .getReference("users")
+                    .child(uid)
+                    .child("energy_data/devices")
+                    .child(device.id)
+                    .removeEventListener(listener)
+            }
+        }
     }
 }

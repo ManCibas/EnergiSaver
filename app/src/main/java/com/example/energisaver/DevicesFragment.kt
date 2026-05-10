@@ -107,18 +107,11 @@ class DevicesFragment : Fragment() {
         inputIP.hint = "Endereço IP (ex: 192.168.1.50)"
         layout.addView(inputIP)
 
-        val inputConsumption = EditText(requireContext())
-        inputConsumption.hint = "Consumo hoje (kWh)"
-        inputConsumption.inputType =
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        layout.addView(inputConsumption)
-
         builder.setView(layout)
 
         builder.setPositiveButton("Adicionar") { _, _ ->
             val name = inputName.text.toString()
             val ip = inputIP.text.toString()
-            val consumption = inputConsumption.text.toString().toFloatOrNull() ?: 0f
 
             if (name.isNotEmpty()) {
                 val deviceId = database.push().key // Generate a unique ID for the new device
@@ -126,7 +119,7 @@ class DevicesFragment : Fragment() {
                 val newDevice = Device(
                     id = deviceId ?: "",
                     name = name,
-                    consumption = consumption,
+                    consumption = 0f,
                     status = "Ativo",
                     ipAddress = ip
                 )

@@ -73,6 +73,14 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/tvSettingsEmail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="email@exemplo.com"
+                        android:textColor="#CCFFFFFF"
+                        android:textSize="12sp" />
+
+                    <TextView
                         android:id="@+id/tvDeviceCount"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
