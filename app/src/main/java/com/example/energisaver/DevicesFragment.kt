@@ -146,7 +146,7 @@ class DevicesFragment : Fragment() {
             .setTitle("Eliminar Dispositivo")
             .setMessage("Tem a certeza que deseja eliminar o ${device.name}?")
             .setPositiveButton("Sim") { _, _ ->
-                // Eliminar do Firebase usando o ID do dispositivo
+                // Eliminate from Firebase using device's ID
                 database.child(device.id).removeValue().addOnSuccessListener {
                     Toast.makeText(context, "Removido com sucesso", Toast.LENGTH_SHORT).show()
                 }

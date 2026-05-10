@@ -140,17 +140,19 @@ class DeviceDetailsFragment(private val device: Device) : BottomSheetDialogFragm
         //Cancels any pending coroutines
         scope.cancel()
 
-        // 2. Remove o listener do Firebase para evitar que a App
-        // continue a gastar dados com a janela fechada
         firebaseListener?.let { listener ->
             val uid = FirebaseAuth.getInstance().currentUser?.uid
             if (uid != null) {
-                FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+                val deviceRef = FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
                     .getReference("users")
                     .child(uid)
-                    .child("energy_data/devices")
+                    .child("energy_data")
+                    .child("devices")
                     .child(device.id)
-                    .removeEventListener(listener)
+
+                firebaseListener?.let { deviceRef.removeEventListener(it) }
+
+                historyListener?.let { deviceRef.child("history").removeEventListener(it) }
             }
         }
     }

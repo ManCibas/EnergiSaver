@@ -16,7 +16,7 @@ import com.google.firebase.auth.FirebaseAuth
 
 class HomeFragment : Fragment() {
 
-    // Referências para os componentes da UI
+    //UI references for components
     private lateinit var database: DatabaseReference
     private lateinit var tvCurrentUsage: TextView
     private lateinit var tvTodayUsage: TextView
@@ -33,7 +33,7 @@ class HomeFragment : Fragment() {
         // Inflate the layout for this fragment
         val view = inflater.inflate(R.layout.fragment_home, container, false)
 
-        // 1. Inicializar os componentes
+        // 1. Inicialize the components
         tvCurrentUsage = view.findViewById(R.id.tvCurrentUsageValue)
         tvTodayUsage = view.findViewById(R.id.tvTodayUsageValue)
         tvTodayCost = view.findViewById(R.id.tvTodayCostValue)
