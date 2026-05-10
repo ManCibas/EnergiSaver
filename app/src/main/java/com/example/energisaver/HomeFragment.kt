@@ -126,11 +126,14 @@ class HomeFragment : Fragment() {
                     val entries = ArrayList<PieEntry>()
 
                     for (device in snapshot.children) {
-                        val name = device.child("name").value.toString()
-                        val consumption = device.child("consumption")
-                            .getValue(Float::class.java) ?: 0f
+                        val status = device.child("status").value.toString() ?: "Offline"
+                        if(status == "Ativo") {
+                            val name = device.child("name").value.toString()
+                            val consumption = device.child("consumption")
+                                .getValue(Float::class.java) ?: 0f
 
-                        entries.add(PieEntry(consumption, name))
+                            entries.add(PieEntry(consumption, name))
+                        }
                     }
 
                     val dataSet = PieDataSet(entries, "")
