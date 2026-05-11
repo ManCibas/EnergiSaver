@@ -1,173 +1,251 @@
 package com.example.energisaver
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
-import android.view.*
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ProgressBar
 import android.widget.TextView
-import androidx.fragment.app.Fragment
-import com.google.firebase.database.*
 import android.widget.Toast
-import com.github.mikephil.charting.data.*
+import androidx.fragment.app.Fragment
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.charts.PieChart
-import android.graphics.Color
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.*
 import com.google.firebase.auth.FirebaseAuth
-import android.widget.ProgressBar
-import android.content.res.ColorStateList
-
+import com.google.firebase.database.*
 
 class HomeFragment : Fragment() {
 
-    //UI references for components
+    // UI references for components
     private lateinit var database: DatabaseReference
+
     private lateinit var tvCurrentUsage: TextView
     private lateinit var tvTodayUsage: TextView
     private lateinit var tvTodayCost: TextView
+
     private lateinit var lineChart: LineChart
     private lateinit var pieChart: PieChart
-
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
+
         // Inflate the layout for this fragment
         val view = inflater.inflate(R.layout.fragment_home, container, false)
 
-        // 1. Inicialize the components
+        // 1. Initialize the components
         tvCurrentUsage = view.findViewById(R.id.tvCurrentUsageValue)
         tvTodayUsage = view.findViewById(R.id.tvTodayUsageValue)
         tvTodayCost = view.findViewById(R.id.tvTodayCostValue)
+
         lineChart = view.findViewById(R.id.lineChart)
         pieChart = view.findViewById(R.id.pieChart)
 
         val currentUser = FirebaseAuth.getInstance().currentUser
+
         if (currentUser != null) {
+
             val uid = currentUser.uid
+
             // Dynamic reference to the user's data
-            database = FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+            database = FirebaseDatabase
+                .getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
                 .getReference("users")
                 .child(uid)
                 .child("energy_data")
 
-            loadSummary()
+            // Load all dashboard information
+            loadSummary(view)
             loadLineChart()
             loadPieChart()
             loadProfile()
 
         } else {
-                Toast.makeText(context, "Sessão expirada", Toast.LENGTH_SHORT).show()
+
+            Toast.makeText(
+                context,
+                "Sessão expirada",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         return view
     }
 
-    private fun loadSummary() {
-        database.child("summary").addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                if (snapshot.exists() && isAdded) {
-                    val consumido = snapshot.child("today_kWh").getValue(Float::class.java) ?: 0f
-                    val custo = snapshot.child("today_cost").getValue(Float::class.java) ?: 0f
+    private fun loadSummary(view: View) {
 
-                    // LER A META DA BASE DE DADOS (Se não existir, usa 20 como padrão)
-                    val meta = snapshot.child("daily_goal").getValue(Float::class.java) ?: 20f
+        // References to dashboard cards
+        val tvWatts = view.findViewById<TextView>(R.id.tvCurrentUsageValue)
+        val tvKwh = view.findViewById<TextView>(R.id.tvTodayUsageValue)
+        val tvCusto = view.findViewById<TextView>(R.id.tvTodayCostValue)
 
-                    tvTodayUsage.text = String.format("%.2f kWh", consumido)
-                    tvTodayCost.text = String.format("%.2f € hoje", custo)
+        // IMPORTANT:
+        // database already points to:
+        // users/{uid}/energy_data
+        //
+        // So we only need:
+        // summary
+        database.child("summary")
+            .addValueEventListener(object : ValueEventListener {
 
-                    // Barra de Progresso
-                    val pb = view?.findViewById<ProgressBar>(R.id.progressGoal)
-                    val tvPb = view?.findViewById<TextView>(R.id.tvGoalStatus)
+                override fun onDataChange(snapshot: DataSnapshot) {
 
-                    if (meta > 0) {
-                        val progresso = ((consumido / meta) * 100).toInt()
-                        pb?.progress = if (progresso > 100) 100 else progresso
-                        tvPb?.text = String.format("%.2f / %.0f kWh hoje", consumido, meta)
+                    if (!isAdded || !snapshot.exists()) return
 
-                        // Lógica de COR: Vermelho se ultrapassar o limite, Verde se estiver OK
-                        val cor = if (consumido >= meta) "#EB5757" else "#27AE60"
-                        pb?.progressTintList = ColorStateList.valueOf(Color.parseColor(cor))
-                    } else {
-                        pb?.progress = 0
-                        tvPb?.text = "Defina uma meta nas definições"
-                        // Garante que a barra começa verde se não houver meta
-                        pb?.progressTintList = ColorStateList.valueOf(Color.parseColor("#27AE60"))
-                    }
+                    // Read values from Firebase
+                    val watts = snapshot.child("current_usage")
+                        .getValue(Double::class.java) ?: 0.0
+
+                    val kwh = snapshot.child("today_kWh")
+                        .getValue(Double::class.java) ?: 0.0
+
+                    val custo = snapshot.child("today_cost")
+                        .getValue(Double::class.java) ?: 0.0
+
+                    // Update cards
+                    tvWatts.text =
+                        "${String.format("%.1f", watts)} W"
+
+                    tvKwh.text =
+                        "${String.format("%.4f", kwh)} kWh"
+
+                    tvCusto.text =
+                        "${String.format("%.2f", custo)} €"
                 }
-            }
-            override fun onCancelled(error: DatabaseError) {}
-        })
+
+                override fun onCancelled(error: DatabaseError) {
+
+                    Toast.makeText(
+                        context,
+                        "Erro ao carregar resumo",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            })
     }
 
-
     private fun loadLineChart() {
+
         database.child("day_history")
-            .addValueEventListener(object : ValueEventListener {                override fun onDataChange(snapshot: DataSnapshot) {
-                val entries = ArrayList<Entry>()
-                val labels = ArrayList<String>()
-                var index = 0f
+            .addValueEventListener(object : ValueEventListener {
 
-                for (point in snapshot.children) {
-                    val timeLabel = point.key ?: ""
-                    val value = point.getValue(Float::class.java) ?: 0f
+                override fun onDataChange(snapshot: DataSnapshot) {
 
-                    entries.add(Entry(index, value))
-                    labels.add(timeLabel)
-                    index++
-                }
+                    val entries = ArrayList<Entry>()
+                    val labels = ArrayList<String>()
 
-                if (entries.isNotEmpty()) {
-                    val dataSet = LineDataSet(entries, "Consumo Total (W)")
-                    dataSet.color = Color.parseColor("#27AE60")
-                    dataSet.setCircleColor(Color.parseColor("#27AE60"))
-                    dataSet.lineWidth = 2f
-                    dataSet.mode = LineDataSet.Mode.CUBIC_BEZIER
-                    dataSet.setDrawFilled(true)
-                    dataSet.fillColor = Color.parseColor("#27AE60")
+                    var index = 0f
 
-                    lineChart.data = LineData(dataSet)
+                    for (point in snapshot.children) {
 
-                    // Formatar o Eixo X para mostrar as horas do Python
-                    val xAxis = lineChart.xAxis
-                    xAxis.valueFormatter = object : com.github.mikephil.charting.formatter.ValueFormatter() {
-                        override fun getFormattedValue(value: Float): String {
-                            val i = value.toInt()
-                            return if (i >= 0 && i < labels.size) labels[i] else ""
-                        }
+                        val timeLabel = point.key ?: ""
+
+                        val value =
+                            point.getValue(Double::class.java)?.toFloat() ?: 0f
+
+                        entries.add(Entry(index, value))
+
+                        labels.add(timeLabel)
+
+                        index++
                     }
-                    xAxis.position = com.github.mikephil.charting.components.XAxis.XAxisPosition.BOTTOM
-                    xAxis.granularity = 1f
 
-                    lineChart.description.isEnabled = false
-                    lineChart.animateX(500)
-                    lineChart.invalidate()
+                    if (entries.isNotEmpty()) {
+
+                        val dataSet =
+                            LineDataSet(entries, "Consumo Total (W)")
+
+                        dataSet.color =
+                            Color.parseColor("#27AE60")
+
+                        dataSet.setCircleColor(
+                            Color.parseColor("#27AE60")
+                        )
+
+                        dataSet.lineWidth = 2f
+
+                        dataSet.mode =
+                            LineDataSet.Mode.CUBIC_BEZIER
+
+                        dataSet.setDrawFilled(true)
+
+                        dataSet.fillColor =
+                            Color.parseColor("#27AE60")
+
+                        lineChart.data = LineData(dataSet)
+
+                        // Format X axis with hour labels
+                        val xAxis = lineChart.xAxis
+
+                        xAxis.valueFormatter =
+                            object : com.github.mikephil.charting.formatter.ValueFormatter() {
+
+                                override fun getFormattedValue(value: Float): String {
+
+                                    val i = value.toInt()
+
+                                    return if (i >= 0 && i < labels.size)
+                                        labels[i]
+                                    else
+                                        ""
+                                }
+                            }
+
+                        xAxis.position = XAxis.XAxisPosition.BOTTOM
+                        xAxis.granularity = 1f
+
+                        lineChart.description.isEnabled = false
+
+                        lineChart.animateX(500)
+
+                        lineChart.invalidate()
+                    }
                 }
-            }
+
                 override fun onCancelled(error: DatabaseError) {}
             })
     }
 
-
     private fun loadPieChart() {
+
         database.child("devices")
             .addValueEventListener(object : ValueEventListener {
+
                 override fun onDataChange(snapshot: DataSnapshot) {
 
                     val entries = ArrayList<PieEntry>()
 
                     for (device in snapshot.children) {
-                        val status = device.child("status").value.toString() ?: "Offline"
-                        if(status == "Ativo") {
-                            val name = device.child("name").value.toString()
-                            val consumption = device.child("consumption")
-                                .getValue(Float::class.java) ?: 0f
 
-                            entries.add(PieEntry(consumption, name))
+                        val status =
+                            device.child("status")
+                                .value
+                                .toString()
+
+                        if (status == "Ativo") {
+
+                            val name =
+                                device.child("name")
+                                    .value
+                                    .toString()
+
+                            val consumption =
+                                device.child("consumption")
+                                    .getValue(Double::class.java)
+                                    ?.toFloat() ?: 0f
+
+                            entries.add(
+                                PieEntry(consumption, name)
+                            )
                         }
                     }
 
                     val dataSet = PieDataSet(entries, "")
+
                     dataSet.colors = listOf(
                         Color.parseColor("#27AE60"),
                         Color.parseColor("#2D9CDB"),
@@ -176,9 +254,13 @@ class HomeFragment : Fragment() {
                     )
 
                     val data = PieData(dataSet)
+
                     pieChart.data = data
+
                     pieChart.description.isEnabled = false
+
                     pieChart.centerText = "Dispositivos"
+
                     pieChart.invalidate()
                 }
 
@@ -187,21 +269,38 @@ class HomeFragment : Fragment() {
     }
 
     private fun loadProfile() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
+
+        val uid = FirebaseAuth
+            .getInstance()
+            .currentUser
+            ?.uid
+
         if (uid != null) {
-            //Point users/UID/profile
-            val profileRef = FirebaseDatabase.getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
-                .getReference("users").child(uid).child("profile")
+
+            // Point users/UID/profile
+            val profileRef = FirebaseDatabase
+                .getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+                .getReference("users")
+                .child(uid)
+                .child("profile")
 
             profileRef.addValueEventListener(object : ValueEventListener {
+
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    val name = snapshot.child("username").value?.toString() ?: "Utilizador"
-                    // Atualiza o TextView tvWelcome
-                    view?.findViewById<TextView>(R.id.tvWelcome)?.text = "Bem-vindo, $name"
+
+                    val name =
+                        snapshot.child("username")
+                            .value
+                            ?.toString()
+                            ?: "Utilizador"
+
+                    // Update welcome text
+                    view?.findViewById<TextView>(R.id.tvWelcome)
+                        ?.text = "Bem-vindo, $name"
                 }
+
                 override fun onCancelled(error: DatabaseError) {}
             })
         }
     }
-
 }

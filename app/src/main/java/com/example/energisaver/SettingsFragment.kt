@@ -33,9 +33,6 @@ class SettingsFragment : Fragment() {
         val tvDeviceCount = view.findViewById<TextView>(R.id.tvDeviceCount)
         val btnLogout = view.findViewById<LinearLayout>(R.id.btnSettingsLogout)
         val ivEditUsername = view.findViewById<ImageView>(R.id.ivEditUsername)
-        val cardGoal = view.findViewById<CardView>(R.id.card_goal)
-        val btnTariff = view.findViewById<LinearLayout>(R.id.btnSetTariff)
-
 
         val auth = FirebaseAuth.getInstance()
         val user = auth.currentUser
@@ -61,6 +58,7 @@ class SettingsFragment : Fragment() {
 
                 override fun onCancelled(error: DatabaseError) {}
             }
+
             dbRef!!
                 .child("profile")
                 .addListenerForSingleValueEvent(profileListener!!)
@@ -76,35 +74,107 @@ class SettingsFragment : Fragment() {
 
                 override fun onCancelled(error: DatabaseError) {}
             }
+
             dbRef!!
                 .child("energy_data/devices")
                 .addListenerForSingleValueEvent(devicesListener!!)
         }
 
         ivEditUsername.setOnClickListener {
-            showInputDialog("Alterar Nome", "profile/username", InputType.TYPE_CLASS_TEXT)
-        }
 
-        // Definir Meta
-        cardGoal.setOnClickListener {
-            showInputDialog("Definir Meta Diária (kWh)", "energy_data/summary/daily_goal",
-                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
-        }
+            val builder = AlertDialog.Builder(requireContext())
 
-        // Definir Tarifa
-        btnTariff.setOnClickListener {
-            showInputDialog("Preço por kWh (€)", "profile/energy_price",
-                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+            builder.setTitle("Alterar Nome")
+
+            val input = EditText(requireContext())
+
+            input.setText(tvName.text.toString())
+
+            builder.setView(input)
+
+            builder.setPositiveButton("Guardar") { _, _ ->
+
+                val novoNome = input.text.toString().trim()
+
+                if (novoNome.isNotEmpty()) {
+
+                    val uid = auth.currentUser?.uid
+                        ?: return@setPositiveButton
+
+                    val dbProfile = FirebaseDatabase
+                        .getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+                        .getReference("users")
+                        .child(uid)
+                        .child("profile")
+
+                    dbProfile.child("username")
+                        .setValue(novoNome)
+                        .addOnSuccessListener {
+
+                            tvName.text = novoNome
+
+                            Toast.makeText(
+                                context,
+                                "Nome atualizado!",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        .addOnFailureListener {
+
+                            Toast.makeText(
+                                context,
+                                "Erro ao atualizar nome",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                }
+            }
+
+            builder.setNegativeButton("Cancelar", null)
+
+            builder.show()
         }
 
         btnLogout.setOnClickListener {
-            removeListeners()
+            //Remove listeners before logging out
+            profileListener?.let {
+                dbRef?.child("profile")?.removeEventListener(it)
+            }
+            devicesListener?.let {
+                dbRef?.child("energy_data/devices")
+                    ?.removeEventListener(it)
+            }
+
+            // Clear references so OnDestroyView doesn't try to remove them again
+            profileListener = null
+            devicesListener = null
+
+            //Logout
             auth.signOut()
+
+            // Go to login screen but clear the backstack
             val intent = Intent(requireContext(), LoginActivity::class.java)
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            intent.flags =
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TASK
+
             startActivity(intent)
-            activity?.finish()
         }
+
+        // 1. Clicar no Card da Meta para mudar o limite
+        val cardGoal = view.findViewById<CardView>(R.id.card_goal)
+        cardGoal.setOnClickListener {
+            showInputDialog("Definir Meta Diária (kWh)", "energy_data/summary/daily_goal")
+        }
+
+        // 2. Clicar na Tarifa para mudar o preço
+        val btnTariff = view.findViewById<LinearLayout>(R.id.btnSetTariff)
+        btnTariff.setOnClickListener {
+            showInputDialog("Preço por kWh (€)", "profile/energy_price")
+        }
+
+
+        loadDailyGoal(view)
 
 
         return view
@@ -116,36 +186,112 @@ class SettingsFragment : Fragment() {
         val input = EditText(requireContext())
         input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         builder.setView(input)
-        builder.setPositiveButton("Ok") { _, _ ->
-            val valor = input.text.toString().toFloatOrNull() ?: 0f
+        builder.setPositiveButton("Guardar") { _, _ ->
+            val valor = input.text.toString().toFloatOrNull()
+
+            if (valor == null) {
+
+                Toast.makeText(
+                    context,
+                    "Valor inválido",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                return@setPositiveButton
+            }
+            // Isto envia o número real para o Firebase
             dbRef?.child(dbPath)?.setValue(valor)
         }
+        builder.setNegativeButton("Cancelar", null)
         builder.show()
     }
 
-    private fun showInputDialog(title: String, dbPath: String, inputType: Int) {
-        val builder = AlertDialog.Builder(requireContext())
-        builder.setTitle(title)
-        val input = EditText(requireContext())
-        input.inputType = inputType
-        builder.setView(input)
-        builder.setPositiveButton("Guardar") { _, _ ->
-            val valorStr = input.text.toString()
-            if (valorStr.isNotEmpty()) {
-                val valor: Any = if (inputType == InputType.TYPE_CLASS_TEXT) valorStr else (valorStr.toFloatOrNull() ?: 0f)
-                dbRef?.child(dbPath)?.setValue(valor)
-            }
-        }
-        builder.setNegativeButton("Cancelar", null).show()
-    }
+    private fun loadDailyGoal(view: View) {
 
-    private fun removeListeners() {
-        profileListener?.let { dbRef?.child("profile")?.removeEventListener(it) }
-        devicesListener?.let { dbRef?.child("energy_data/devices")?.removeEventListener(it) }
+        val progressBar =
+            view.findViewById<ProgressBar>(R.id.progressGoal)
+
+        val tvGoalStatus =
+            view.findViewById<TextView>(R.id.tvGoalStatus)
+
+        val uid = FirebaseAuth.getInstance()
+            .currentUser
+            ?.uid ?: return
+
+        // Reference to summary
+        val summaryRef = FirebaseDatabase
+            .getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
+            .getReference("users")
+            .child(uid)
+            .child("energy_data")
+            .child("summary")
+
+        summaryRef.addValueEventListener(object : ValueEventListener {
+
+            override fun onDataChange(snapshot: DataSnapshot) {
+
+                if (!snapshot.exists()) return
+
+                // Current consumption
+                val todayKwh =
+                    snapshot.child("today_kWh")
+                        .getValue(Double::class.java) ?: 0.0
+
+                // Daily limit
+                val dailyGoal =
+                    snapshot.child("daily_goal")
+                        .getValue(Double::class.java) ?: 0.0
+
+                // If there is no limit configured
+                if (dailyGoal <= 0) {
+
+                    progressBar.progress = 0
+                    progressBar.invalidate()
+
+                    tvGoalStatus.text =
+                        "Clique para definir meta"
+
+                    return
+                }
+
+                // Calculate progress
+                val progress =
+                    ((todayKwh / dailyGoal) * 100).toInt()
+
+                progressBar.progress =
+                    if (progress > 100) 100
+                    else progress
+
+                // Update text
+                tvGoalStatus.text =
+                    "${String.format("%.2f", todayKwh)} / ${String.format("%.2f", dailyGoal)} kWh"
+
+                // Change color if limit exceeded
+                val color =
+                    if (progress >= 100)
+                        "#EB5757"
+                    else
+                        "#27AE60"
+
+                progressBar.progressDrawable.setTint(
+                    android.graphics.Color.parseColor(color)
+                )
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        removeListeners()
+
+        profileListener?.let {
+            dbRef?.child("profile")?.removeEventListener(it)
+        }
+
+        devicesListener?.let {
+            dbRef?.child("energy_data/devices")
+                ?.removeEventListener(it)
+        }
     }
 }

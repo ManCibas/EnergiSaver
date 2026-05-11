@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -14,15 +15,33 @@
         android:background="#DDDDDD"
         android:layout_marginBottom="16dp"/>
 
-    <EditText
-        android:id="@+id/etEditDeviceName"
+    <!-- Contentor do Nome com Ícone de Edição (Caneta) -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:textColor="#333333"
-        android:background="@null"
-        android:hint="Nome do Dispositivo" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <EditText
+            android:id="@+id/etEditDeviceName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#333333"
+            android:background="@null"
+            android:hint="Nome do Dispositivo" />
+
+        <ImageView
+            android:id="@+id/ivEditDeviceName"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@android:drawable/ic_menu_edit"
+            app:tint="#757575" />
+    </LinearLayout>
 
     <com.google.android.material.switchmaterial.SwitchMaterial
         android:id="@+id/switchDeviceStatus"
@@ -36,7 +55,7 @@
         android:id="@+id/tvDetailConsumption"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Consumo: 0.0 kWh"
+        android:text="Consumo: 0.0 W"
         android:textColor="#757575"
         android:layout_marginBottom="16dp"/>
 
