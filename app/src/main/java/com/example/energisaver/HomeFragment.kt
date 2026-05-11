@@ -82,8 +82,12 @@ class HomeFragment : Fragment() {
                 }
             }
 
-            override fun onCancelled(databaseError: DatabaseError) {
-                Toast.makeText(context, "Database Error: ${databaseError.message}", Toast.LENGTH_SHORT).show()
+            override fun onCancelled(error: DatabaseError) {
+                if (error.code != DatabaseError.PERMISSION_DENIED) {
+                    if (isAdded) { // Só mostra o Toast se o fragmento ainda estiver "vivo"
+                        // Toast.makeText(context, "Erro: ${error.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         })
     }
