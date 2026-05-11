@@ -64,7 +64,8 @@ class RegisterActivity : AppCompatActivity() {
         }
 
         btnBack.setOnClickListener {
-            startActivity(Intent(this, LoginActivity::class.java))
+            val intent = Intent(this, LoginActivity::class.java)
+            startActivity(intent)
             finish()
         }
     }

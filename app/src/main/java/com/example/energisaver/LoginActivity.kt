@@ -25,9 +25,11 @@ class LoginActivity : AppCompatActivity() {
         val btnLogin = findViewById<Button>(R.id.btnLogin)
         val tvGoToRegister = findViewById<TextView>(R.id.tvGoToRegister)
 
+        //Go to Register but clear the backstack
         tvGoToRegister.setOnClickListener {
             val intent = Intent(this, RegisterActivity::class.java)
             startActivity(intent)
+            finish()
         }
 
         btnLogin.setOnClickListener {
@@ -49,8 +51,10 @@ class LoginActivity : AppCompatActivity() {
                     finish()
                 }
                 .addOnFailureListener {
-                    Toast.makeText(this, "Erro: ${it.message}", Toast.LENGTH_SHORT).show()
+                    //Toast.makeText(this, "Erro: ${it.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Erro: Email ou password incorretos", Toast.LENGTH_SHORT).show()
                 }
+
         }
     }
 }
