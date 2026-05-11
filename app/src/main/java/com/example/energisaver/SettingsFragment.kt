@@ -2,14 +2,17 @@ package com.example.energisaver
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
+import androidx.cardview.widget.CardView
 import androidx.fragment.app.Fragment
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
+
 
 class SettingsFragment : Fragment() {
 
@@ -30,6 +33,9 @@ class SettingsFragment : Fragment() {
         val tvDeviceCount = view.findViewById<TextView>(R.id.tvDeviceCount)
         val btnLogout = view.findViewById<LinearLayout>(R.id.btnSettingsLogout)
         val ivEditUsername = view.findViewById<ImageView>(R.id.ivEditUsername)
+        val cardGoal = view.findViewById<CardView>(R.id.card_goal)
+        val btnTariff = view.findViewById<LinearLayout>(R.id.btnSetTariff)
+
 
         val auth = FirebaseAuth.getInstance()
         val user = auth.currentUser
@@ -55,7 +61,6 @@ class SettingsFragment : Fragment() {
 
                 override fun onCancelled(error: DatabaseError) {}
             }
-
             dbRef!!
                 .child("profile")
                 .addListenerForSingleValueEvent(profileListener!!)
@@ -71,106 +76,76 @@ class SettingsFragment : Fragment() {
 
                 override fun onCancelled(error: DatabaseError) {}
             }
-
             dbRef!!
                 .child("energy_data/devices")
                 .addListenerForSingleValueEvent(devicesListener!!)
         }
 
         ivEditUsername.setOnClickListener {
+            showInputDialog("Alterar Nome", "profile/username", InputType.TYPE_CLASS_TEXT)
+        }
 
-            val builder = AlertDialog.Builder(requireContext())
+        // Definir Meta
+        cardGoal.setOnClickListener {
+            showInputDialog("Definir Meta Diária (kWh)", "energy_data/summary/daily_goal",
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        }
 
-            builder.setTitle("Alterar Nome")
-
-            val input = EditText(requireContext())
-
-            input.setText(tvName.text.toString())
-
-            builder.setView(input)
-
-            builder.setPositiveButton("Guardar") { _, _ ->
-
-                val novoNome = input.text.toString().trim()
-
-                if (novoNome.isNotEmpty()) {
-
-                    val uid = auth.currentUser?.uid
-                        ?: return@setPositiveButton
-
-                    val dbProfile = FirebaseDatabase
-                        .getInstance("https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app")
-                        .getReference("users")
-                        .child(uid)
-                        .child("profile")
-
-                    dbProfile.child("username")
-                        .setValue(novoNome)
-                        .addOnSuccessListener {
-
-                            tvName.text = novoNome
-
-                            Toast.makeText(
-                                context,
-                                "Nome atualizado!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        .addOnFailureListener {
-
-                            Toast.makeText(
-                                context,
-                                "Erro ao atualizar nome",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                }
-            }
-
-            builder.setNegativeButton("Cancelar", null)
-
-            builder.show()
+        // Definir Tarifa
+        btnTariff.setOnClickListener {
+            showInputDialog("Preço por kWh (€)", "profile/energy_price",
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         }
 
         btnLogout.setOnClickListener {
-            //Remove listeners before logging out
-            profileListener?.let {
-                dbRef?.child("profile")?.removeEventListener(it)
-            }
-            devicesListener?.let {
-                dbRef?.child("energy_data/devices")
-                    ?.removeEventListener(it)
-            }
-
-            // Clear references so OnDestroyView doesn't try to remove them again
-            profileListener = null
-            devicesListener = null
-
-            //Logout
+            removeListeners()
             auth.signOut()
-
-            // Go to login screen but clear the backstack
             val intent = Intent(requireContext(), LoginActivity::class.java)
-            intent.flags =
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TASK
-
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             startActivity(intent)
+            activity?.finish()
         }
+
 
         return view
     }
 
+    private fun showInputDialog(title: String, dbPath: String) {
+        val builder = AlertDialog.Builder(requireContext())
+        builder.setTitle(title)
+        val input = EditText(requireContext())
+        input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        builder.setView(input)
+        builder.setPositiveButton("Ok") { _, _ ->
+            val valor = input.text.toString().toFloatOrNull() ?: 0f
+            dbRef?.child(dbPath)?.setValue(valor)
+        }
+        builder.show()
+    }
+
+    private fun showInputDialog(title: String, dbPath: String, inputType: Int) {
+        val builder = AlertDialog.Builder(requireContext())
+        builder.setTitle(title)
+        val input = EditText(requireContext())
+        input.inputType = inputType
+        builder.setView(input)
+        builder.setPositiveButton("Guardar") { _, _ ->
+            val valorStr = input.text.toString()
+            if (valorStr.isNotEmpty()) {
+                val valor: Any = if (inputType == InputType.TYPE_CLASS_TEXT) valorStr else (valorStr.toFloatOrNull() ?: 0f)
+                dbRef?.child(dbPath)?.setValue(valor)
+            }
+        }
+        builder.setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun removeListeners() {
+        profileListener?.let { dbRef?.child("profile")?.removeEventListener(it) }
+        devicesListener?.let { dbRef?.child("energy_data/devices")?.removeEventListener(it) }
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
-
-        profileListener?.let {
-            dbRef?.child("profile")?.removeEventListener(it)
-        }
-
-        devicesListener?.let {
-            dbRef?.child("energy_data/devices")
-                ?.removeEventListener(it)
-        }
+        removeListeners()
     }
 }

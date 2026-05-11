@@ -1,105 +1,94 @@
+import asyncio
+import firebase_admin
+from firebase_admin import credentials, db
+from tapo import ApiClient
+from datetime import datetime
+import requests
+import os
+
+# 1. Firebase config
+folder = os.path.dirname(os.path.abspath(__file__))
+cred_path = os.path.join(folder, "energisaver-project-firebase-adminsdk-fbsvc-cf009acb7a.json")
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://energisaver-project-default-rtdb.europe-west1.firebasedatabase.app'
+    })
+
+# 2. Global CONFIG
+EMAIL_TAPO = "ciagoaragao@gmail.com"
+PASS_TAPO = "ccii@Tapo5202"
+
 async def main():
-    print(f"🚀 Hub Multi-Utilizador Iniciado!")
+    print(f"🚀 Hub IoT Global Iniciado!")
     client = ApiClient(EMAIL_TAPO, PASS_TAPO)
 
     while True:
         try:
-            # 1. Search for ALL users in the firebase
             users_ref = db.reference('users')
             users_snapshot = users_ref.get()
 
             if users_snapshot:
-                # 2. Look for each user found in the system
                 for uid, user_data in users_snapshot.items():
-
                     devices = user_data.get('energy_data', {}).get('devices', {})
-                    total_usage_watts = 0.0
-
-                    if not devices:
-                        continue
-
-                    # Pegamos a hora e minuto atual para as validações
+                    profile = user_data.get('profile', {})
+                    summary_ref = db.reference(f'users/{uid}/energy_data/summary')
+                    
                     now = datetime.now()
-                    pode_gravar_historico = (now.minute % 5 == 0) # True de 5 em 5 minutos
                     e_hora_do_reset = (now.hour == 9 and now.minute == 0)
+                    pode_gravar_ponto = (now.minute % 5 == 0)
+                    
+                    # Preço da App ou 0.22€ padrão
+                    preco_kwh = profile.get('energy_price', 0.22)
+                    total_watts = 0.0
 
-                    # 3. Look for devices of this specific user
                     for dev_id, dev_data in devices.items():
                         ip = dev_data.get('ipAddress')
-                        name = dev_data.get('name', 'Dispositivo Desconhecido')
-                        # Pega o status da nuvem (Ordem vinda da App)
-                        status_nuvem = dev_data.get('status', 'Ativo')
-
-                        if not ip:
-                            continue
-
-                        watts = 0.0
+                        status = dev_data.get('status', 'Ativo')
+                        if not ip: continue
 
                         try:
-                            # 3.1 Try Tapo
                             device = await client.p110(ip)
-
-                            # LOGICA DE COMANDO REMOTO:
-                            if status_nuvem == "Desligado":
-                                await device.off() # Desliga a tomada física
+                            if status == "Desligado":
+                                await device.off()
                                 watts = 0.0
                             else:
-                                await device.on() # Garante que está ligada para ler
+                                await device.on()
                                 usage = await device.get_energy_usage()
-                                watts = usage.current_power
-                                if watts > 500: watts /= 1000 # Convert mW to W
+                                watts = usage.current_power / 1000 if usage.current_power > 500 else usage.current_power
+                            
+                            watts = round(watts, 2)
+                            db.reference(f'users/{uid}/energy_data/devices/{dev_id}').update({'consumption': watts})
+                            total_watts += watts
 
+                            # Histórico Individual
+                            if pode_gravar_ponto:
+                                db.reference(f'users/{uid}/energy_data/devices/{dev_id}/history').update({now.strftime("%H:%M"): watts})
                         except:
-                            try:
-                                # 3.2 If Tapo not found try Shelly
-                                if status_nuvem == "Ativo":
-                                    response = requests.get(f"http://{ip}/status", timeout=3)
-                                    watts = response.json()['meters'][0]['power']
-                                else:
-                                    watts = 0.0
-                            except:
-                                print(f"❌ User [{uid[:5]}] -> {name} em {ip} offline")
-                                db.reference(f'users/{uid}/energy_data/devices/{dev_id}').update({'status': 'Offline'})
-                                continue
+                            continue
 
-                        # Individual update in Firebase (Sempre atualiza o tempo real)
-                        watts = round(watts, 2)
-                        db.reference(f'users/{uid}/energy_data/devices/{dev_id}').update({
-                            'consumption': watts
-                        })
-
-                        # --- LÓGICA DE HISTÓRICO INDIVIDUAL (REQ: 12 leituras/hora + Reset 09h) ---
-                        if e_hora_do_reset:
-                            # Apaga o histórico para começar o dia novo às 09:00
-                            db.reference(f'users/{uid}/energy_data/devices/{dev_id}/history').delete()
-
-                        if pode_gravar_historico:
-                            hora_minuto = now.strftime("%H:%M")
-                            db.reference(f'users/{uid}/energy_data/devices/{dev_id}/history').update({
-                                hora_minuto: watts
-                            })
-
-                        total_usage_watts += watts
-                        # print(f"✅ User [{uid[:5]}...] -> {name}: {watts} W ({status_nuvem})")
-
-                    # 4. Update general resume (summary)
-                    summary_ref = db.reference(f'users/{uid}/energy_data/summary')
+                    # --- CÁLCULO DE ACUMULAÇÃO (Hoje e Custo) ---
+                    summary_data = summary_ref.get() or {}
+                    kwh_anterior = summary_data.get('today_kWh', 0.0)
+                    
+                    # 15 segundos entre loops: (Watts * 15s) / (3600s * 1000)
+                    ganho = (total_watts * 15) / 3600000
+                    novo_kwh = 0.0 if e_hora_do_reset else (kwh_anterior + ganho)
+                    
                     summary_ref.update({
-                        'current_usage': round(total_usage_watts, 2)
+                        'current_usage': round(total_watts, 2),
+                        'today_kWh': round(novo_kwh, 4),
+                        'today_cost': round(novo_kwh * preco_kwh, 2)
                     })
 
-                    # 5. History logic (for line graph global)
-                    if e_hora_do_reset:
-                        db.reference(f'users/{uid}/energy_data/day_history').delete()
-
-                    if pode_gravar_historico:
-                        hora_atual = now.strftime("%H:%M") # Mudamos para H:M para o gráfico ser detalhado
-                        db.reference(f'users/{uid}/energy_data/day_history').update({
-                            hora_atual: round(total_usage_watts, 2)
-                        })
+                    if pode_gravar_ponto:
+                        db.reference(f'users/{uid}/energy_data/day_history').update({now.strftime("%H:%M"): round(total_watts, 2)})
 
         except Exception as e:
-            print(f"💥 Erro no loop global: {e}")
+            print(f"💥 Erro: {e}")
 
-        # Wait 15s before verify all users again
         await asyncio.sleep(15)
+
+if __name__ == "__main__":
+    asyncio.run(main())

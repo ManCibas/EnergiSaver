@@ -12,6 +12,8 @@ import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.charts.PieChart
 import android.graphics.Color
 import com.google.firebase.auth.FirebaseAuth
+import android.widget.ProgressBar
+import android.content.res.ColorStateList
 
 
 class HomeFragment : Fragment() {
@@ -52,6 +54,8 @@ class HomeFragment : Fragment() {
             loadSummary()
             loadLineChart()
             loadPieChart()
+            loadProfile()
+
         } else {
                 Toast.makeText(context, "Sessão expirada", Toast.LENGTH_SHORT).show()
         }
@@ -59,64 +63,87 @@ class HomeFragment : Fragment() {
         return view
     }
 
-    private fun loadSummary(){
-        //Implementing summary
-        database.parent?.child("profile")?.addValueEventListener(object : ValueEventListener {
+    private fun loadSummary() {
+        database.child("summary").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val name = snapshot.child("username").value?.toString() ?: "Utilizador"
-                view?.findViewById<TextView>(R.id.tvWelcome)?.text = "Bem-vindo, $name"
+                if (snapshot.exists() && isAdded) {
+                    val consumido = snapshot.child("today_kWh").getValue(Float::class.java) ?: 0f
+                    val custo = snapshot.child("today_cost").getValue(Float::class.java) ?: 0f
+
+                    // LER A META DA BASE DE DADOS (Se não existir, usa 20 como padrão)
+                    val meta = snapshot.child("daily_goal").getValue(Float::class.java) ?: 20f
+
+                    tvTodayUsage.text = String.format("%.2f kWh", consumido)
+                    tvTodayCost.text = String.format("%.2f € hoje", custo)
+
+                    // Barra de Progresso
+                    val pb = view?.findViewById<ProgressBar>(R.id.progressGoal)
+                    val tvPb = view?.findViewById<TextView>(R.id.tvGoalStatus)
+
+                    if (meta > 0) {
+                        val progresso = ((consumido / meta) * 100).toInt()
+                        pb?.progress = if (progresso > 100) 100 else progresso
+                        tvPb?.text = String.format("%.2f / %.0f kWh hoje", consumido, meta)
+
+                        // Lógica de COR: Vermelho se ultrapassar o limite, Verde se estiver OK
+                        val cor = if (consumido >= meta) "#EB5757" else "#27AE60"
+                        pb?.progressTintList = ColorStateList.valueOf(Color.parseColor(cor))
+                    } else {
+                        pb?.progress = 0
+                        tvPb?.text = "Defina uma meta nas definições"
+                        // Garante que a barra começa verde se não houver meta
+                        pb?.progressTintList = ColorStateList.valueOf(Color.parseColor("#27AE60"))
+                    }
+                }
             }
             override fun onCancelled(error: DatabaseError) {}
         })
-
-        database.child("summary").addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(dataSnapshot: DataSnapshot) {
-                if(dataSnapshot.exists()) {
-                    val currentUsage = dataSnapshot.child("current_usage").value.toString()
-                    val todayUsage = dataSnapshot.child("today_kWh").value.toString()
-                    val todayCost = dataSnapshot.child("today_cost").value.toString()
-
-                    tvCurrentUsage.text = "$currentUsage kwh"
-                    tvTodayUsage.text = "$todayUsage kWh"
-                    tvTodayCost.text = "$todayCost € hoje"
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                if (error.code != DatabaseError.PERMISSION_DENIED) {
-                    if (isAdded) { // Só mostra o Toast se o fragmento ainda estiver "vivo"
-                        // Toast.makeText(context, "Erro: ${error.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        })
     }
+
 
     private fun loadLineChart() {
         database.child("day_history")
-            .addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
+            .addValueEventListener(object : ValueEventListener {                override fun onDataChange(snapshot: DataSnapshot) {
+                val entries = ArrayList<Entry>()
+                val labels = ArrayList<String>()
+                var index = 0f
 
-                    val entries = ArrayList<Entry>()
+                for (point in snapshot.children) {
+                    val timeLabel = point.key ?: ""
+                    val value = point.getValue(Float::class.java) ?: 0f
 
-                    for (point in snapshot.children) {
-                        val time = point.key?.toFloatOrNull() ?: continue
-                        val value = point.getValue(Float::class.java) ?: 0f
-
-                        entries.add(Entry(time, value))
-                    }
-
-                    val dataSet = LineDataSet(entries, "Consumo")
-                    dataSet.color = Color.parseColor("#27AE60")
-                    dataSet.setCircleColor(Color.parseColor("#27AE60"))
-                    dataSet.mode = LineDataSet.Mode.CUBIC_BEZIER
-                    dataSet.setDrawFilled(true) //Fill the area under the line
-
-                    lineChart.data = LineData(dataSet)
-                    lineChart.description.isEnabled = false
-                    lineChart.invalidate()
+                    entries.add(Entry(index, value))
+                    labels.add(timeLabel)
+                    index++
                 }
 
+                if (entries.isNotEmpty()) {
+                    val dataSet = LineDataSet(entries, "Consumo Total (W)")
+                    dataSet.color = Color.parseColor("#27AE60")
+                    dataSet.setCircleColor(Color.parseColor("#27AE60"))
+                    dataSet.lineWidth = 2f
+                    dataSet.mode = LineDataSet.Mode.CUBIC_BEZIER
+                    dataSet.setDrawFilled(true)
+                    dataSet.fillColor = Color.parseColor("#27AE60")
+
+                    lineChart.data = LineData(dataSet)
+
+                    // Formatar o Eixo X para mostrar as horas do Python
+                    val xAxis = lineChart.xAxis
+                    xAxis.valueFormatter = object : com.github.mikephil.charting.formatter.ValueFormatter() {
+                        override fun getFormattedValue(value: Float): String {
+                            val i = value.toInt()
+                            return if (i >= 0 && i < labels.size) labels[i] else ""
+                        }
+                    }
+                    xAxis.position = com.github.mikephil.charting.components.XAxis.XAxisPosition.BOTTOM
+                    xAxis.granularity = 1f
+
+                    lineChart.description.isEnabled = false
+                    lineChart.animateX(500)
+                    lineChart.invalidate()
+                }
+            }
                 override fun onCancelled(error: DatabaseError) {}
             })
     }
